@@ -26,7 +26,7 @@ IGNORE_TIME = 180
 INSULT_TRIGGER = "#insult"
 INSULT_CHANNEL = "#channel01"
 INSULTS_FILE = "insult-list.txt"
-INSULT_INTERVAL = 22 * 60 * 60  # 10 hours in seconds
+INSULT_INTERVAL = 22 * 60 * 60  # 22 hours in seconds
 
 def sanitize(text):
     """
