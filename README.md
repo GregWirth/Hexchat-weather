@@ -1,6 +1,5 @@
-# IRC weather script<br><br>
+# IRC weather bot<br><br>
 Runs via telnet<br>
-IRC weather plugin for Hexchat IRC client<br>
 Create file in directory main script resides named: insult-list.txt<br>
 Populate this file with random text to output to channel.<br>
 This is a timed event set by editing: INSULT_INTERVAL = 22 * 60 * 60  # 22 hours in seconds<br>
