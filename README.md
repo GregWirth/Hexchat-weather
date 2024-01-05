@@ -1,4 +1,5 @@
-# Hexchat-weather
+# IRC weather script<br><br>
+Runs via telnet<br>
 IRC weather plugin for Hexchat IRC client<br>
 Create file in directory main script resides named: insult-list.txt<br>
 Populate this file with random text to output to channel.<br>
