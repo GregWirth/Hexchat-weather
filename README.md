@@ -1,6 +1,7 @@
 # IRC weather bot<br><br>
 <br>
 Script runs, joins selected IRC server and listens for commands.<br>
+Requires various modules which can be installed with pip<br>
 Edit config.json with your info<br>
 Run command: python3 weather-dev-10.py --log-level INFO<br>
 A file will be created named: bot.log<br>
