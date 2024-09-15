@@ -8,7 +8,6 @@ Edit config.json with your info<br>
 Run command: python3 weather-dev-10.py --log-level INFO<br>
 A file will be created named: bot.log<br>
 tail -f bot.log in another window<br>
-Script does not currently run in the background<br>
 This script uses: https://www.weatherapi.com/<br>
 You can sign up for a free account.<br>
 Script uses #zz as a trigger.<br>
