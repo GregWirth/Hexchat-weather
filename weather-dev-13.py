@@ -5,15 +5,18 @@ import time
 import random
 import signal
 import json
+import sys  # Added for sys.exit
 from collections import defaultdict, deque
 from contextlib import suppress
 from urllib.parse import quote
 import argparse
 import logging.handlers
+from cachetools import TTLCache  # Added for TTLCache
 
 # Configure logging with adjustable levels and log rotation
 parser = argparse.ArgumentParser(description='IRC Weather Bot')
 parser.add_argument('--log-level', default='INFO', help='Set the logging level (DEBUG, INFO, WARNING, ERROR)')
+parser.add_argument('--config', default='config.json', help='Path to the configuration file')  # Allow custom config file
 args = parser.parse_args()
 
 logger = logging.getLogger('IrcBot')
@@ -23,8 +26,8 @@ formatter = logging.Formatter('%(asctime)s %(levelname)s: %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-# Load configuration from config.json
-with open('config.json', 'r') as config_file:
+# Load configuration from config.json or specified config file
+with open(args.config, 'r') as config_file:
     config = json.load(config_file)
 
 # Validate required configurations
@@ -50,6 +53,7 @@ API_KEY = config['API_KEY']  # Assuming API_KEY is in config
 
 class IrcBot:
     """An IRC bot that provides weather information and responds to specific triggers."""
+
     def __init__(self):
         self.last_requests = defaultdict(lambda: deque(maxlen=RATE_LIMIT))
         self.global_request_times = deque(maxlen=RATE_LIMIT)
@@ -59,7 +63,7 @@ class IrcBot:
         self.writer = None
         self.lock = asyncio.Lock()
         self.tasks = []
-        self.weather_cache = {}  # Simple cache, consider TTLCache for expiration
+        self.weather_cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
         self.running = True
 
     async def connect(self):
@@ -110,11 +114,13 @@ class IrcBot:
                 line = line.decode('utf-8', errors='ignore').strip()
                 logger.debug(f"Received line: {line}")
                 await self.process_line(line)
-        except ConnectionError as e:
-            logger.error(e)
+        except (ConnectionError, asyncio.IncompleteReadError) as e:
+            logger.error(f"Connection error: {e}")
+            await self.cleanup()
             await self.reconnect()
         except Exception as e:
             logger.error(f"Unexpected error: {e}")
+            await self.cleanup()
             await self.reconnect()
 
     def parse_irc_message(self, message):
@@ -123,7 +129,7 @@ class IrcBot:
         trailing = []
         if not message:
             return None, None, None
-        if message[0] == ':':
+        if message.startswith(':'):
             prefix, message = message[1:].split(' ', 1)
         if ' :' in message:
             message, trailing = message.split(' :', 1)
@@ -191,9 +197,9 @@ class IrcBot:
                 logger.warning(f"Rate limit exceeded for user {user}.")
                 return
             request_times.append(current_time)
-        await self.fetch_and_send_weather(channel, location)
+        await self.fetch_and_send_weather(channel, location, user)
 
-    async def fetch_and_send_weather(self, channel, location):
+    async def fetch_and_send_weather(self, channel, location, user):
         """Fetch weather data and send it to the channel."""
         cache_key = location.lower()
         if cache_key in self.weather_cache:
@@ -203,6 +209,7 @@ class IrcBot:
             try:
                 url = f"https://api.weatherapi.com/v1/forecast.json?key={API_KEY}&q={quote(location)}&days=1&aqi=no&alerts=no"
                 timeout = aiohttp.ClientTimeout(total=10)
+                # Use async context manager for session
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(url) as resp:
                         if resp.status != 200:
@@ -271,15 +278,15 @@ class IrcBot:
 
             weather_message = (
                 f"{name}, {region}, {country} | "
-                f"Current Temp: {temp_f}°F / {temp_c}°C | "
-                f"Min Temp: {mintemp_f}°F / {mintemp_c}°C | "
-                f"Max Temp: {maxtemp_f}°F / {maxtemp_c}°C | "
+                f"Current: {temp_f}°F / {temp_c}°C | "
+                f"Min: {mintemp_f}°F / {mintemp_c}°C | "
+                f"Max: {maxtemp_f}°F / {maxtemp_c}°C | "
                 f"Condition: {condition_text} | "
                 f"Humidity: {humidity}% | "
                 f"Wind: {wind_mph} mph / {wind_kph} kph "
                 f"({wind_degree}°, {wind_dir}) | "
                 f"Gusts: {gust_mph} mph / {gust_kph} kph | "
-                f"Precipitation: {precip_in} in / {precip_mm} mm | "
+                f"Precip: {precip_in} in / {precip_mm} mm | "
                 f"Moon Phase: {moon_phase} | "
                 f"Sunrise: {sunrise} | Sunset: {sunset} | "
                 f"Chance of Rain: {daily_chance_of_rain}% | "
@@ -288,7 +295,11 @@ class IrcBot:
             )
 
             await self.send_message(channel, weather_message)
-            logger.info(f"Sent weather info to {channel}.")
+            logger.info(f"Sent weather info to {channel} for location '{location}' requested by user '{user}'.")
+        except KeyError as e:
+            logger.error(f"Missing expected data in API response for {location}: {e}")
+            error_msg = "Received unexpected data from weather API."
+            await self.send_message(channel, error_msg)
         except Exception as e:
             logger.error(f"Error processing weather data for {location}: {e}")
             error_msg = f"Error processing weather information for {location}."
@@ -303,6 +314,7 @@ class IrcBot:
     async def send_message(self, channel, message):
         """Send a message to the IRC channel, splitting if too long."""
         max_length = 400  # Reserve space for protocol overhead
+        # Split the message into chunks if it exceeds the max length
         while len(message) > max_length:
             part = message[:max_length]
             self.writer.write(f"PRIVMSG {channel} :{part}\r\n".encode())
@@ -316,6 +328,7 @@ class IrcBot:
         while self.running:
             try:
                 await self.connect()
+                # Start the ping task to keep the connection alive
                 ping_task = asyncio.create_task(self.ping_server())
                 self.tasks.append(ping_task)
                 await self.handle_messages()
@@ -334,10 +347,12 @@ class IrcBot:
             try:
                 logger.info("Attempting to reconnect...")
                 await self.connect()
+                # Restart the ping task
                 ping_task = asyncio.create_task(self.ping_server())
                 self.tasks.append(ping_task)
+                # If connection is successful, break out of the loop
                 await self.handle_messages()
-                break  # Exit the loop if successful
+                break
             except Exception as e:
                 logger.error(f"Reconnection failed: {e}")
                 retries += 1
@@ -347,7 +362,8 @@ class IrcBot:
                     break
                 logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries}/{max_retries})...")
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 300)  # Exponential backoff up to 5 minutes
+                # Increase the delay exponentially, up to a maximum of 5 minutes
+                retry_delay = min(retry_delay * 2, 300)
 
     async def cleanup(self):
         """Clean up resources on shutdown."""
@@ -365,6 +381,7 @@ class IrcBot:
 
 class WarezResponder:
     """Responds with random messages from a predefined list when triggered."""
+
     def __init__(self, file_path):
         try:
             with open(file_path, 'r') as file:
@@ -378,14 +395,16 @@ class WarezResponder:
 
 if __name__ == "__main__":
     bot = IrcBot()
-    loop = asyncio.get_event_loop()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, lambda: asyncio.ensure_future(bot.cleanup()))
+    async def main():
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop = asyncio.get_running_loop()
+            loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.cleanup()))
+        await bot.run()
 
     try:
-        loop.run_until_complete(bot.run())
-    finally:
-        loop.close()
+        asyncio.run(main())
+    except KeyboardInterrupt:
         logger.info("Bot shut down gracefully.")
+        sys.exit(0)
 
