@@ -11,8 +11,8 @@ tail -f bot.log in another window<br>
 This script uses: https://www.weatherapi.com/<br>
 You can sign up for a free account.<br>
 Script uses #zz as a trigger.<br>
-Usage: #zz {zip code}<br>
-Usage: #zz {place name}<br>
+Syntax: #zz {zip code}<br>
+Syntax: #zz {place name}<br>
 Returns weather information for zip codes or place names.<br>
 Can use USA and Canada zip codes.<br>
 Script also has a command to send text/links to the channel from a file<br>
