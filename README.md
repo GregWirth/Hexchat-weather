@@ -5,7 +5,7 @@ Script runs, joins selected IRC server and listens for commands.<br>
 Requires various modules which can be installed with pip<br>
 Written to use Python 3.10.12 but may work with older versions of 3.x<br>
 Edit config.json with your info<br>
-Run command: python3 weather-dev-10.py --log-level INFO<br>
+Run command: python3 weather-dev-10.py --log-level {DEBUG INFO WARNING ERROR CRITICAL}<br>
 A file will be created named: bot.log<br>
 tail -f bot.log in another window<br>
 This script uses: https://www.weatherapi.com/<br>
