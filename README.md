@@ -15,6 +15,10 @@ Usage: #zz {zip code}<br>
 Usage: #zz {place name}<br>
 Returns weather information for zip codes or place names.<br>
 Can use USA and Canada zip codes.<br>
+Script also has a command to send text/links to the channel from a file<br>
+The text is selected randomly<br>
+It is run with: !warez<br>
+Filename: warez-trigger.txt<br>
 <br>
 Despite the comprehensive refactoring and the meticulous integration of <br>
 a plethora of enhancements designed to optimize the code's stability and <br>
