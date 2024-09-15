@@ -17,7 +17,7 @@ Returns weather information for zip codes or place names.<br>
 Can use USA and Canada zip codes.<br>
 Script also has a command to send text/links to the channel from a file<br>
 The text is selected randomly<br>
-It is run with: !warez<br>
+Usage: !warez<br>
 Filename: warez-trigger.txt<br>
 <br>
 Despite the comprehensive refactoring and the meticulous integration of <br>
