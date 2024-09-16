@@ -12,6 +12,6 @@
   "PING_INTERVAL": 300,
   "PING_TIMEOUT": 180,
   "API_KEY": "enter-api-key-here",
-  "ADMIN_USERS": ["user01", "user02", "user03", "user04"]
+  "ADMIN_USERS": ["user01", "user02", "user03"]
 }
 
