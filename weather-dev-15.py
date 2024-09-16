@@ -12,6 +12,7 @@ from urllib.parse import quote
 import argparse
 import logging.handlers
 from cachetools import TTLCache  # Added for TTLCache
+import re  # Import regular expressions for input sanitizing
 
 # Configure logging with adjustable levels and log rotation
 parser = argparse.ArgumentParser(description='IRC Weather Bot')
@@ -53,6 +54,15 @@ API_KEY = config['API_KEY']  # Assuming API_KEY is in config
 
 # Load ADMIN_USERS from config
 ADMIN_USERS = config.get('ADMIN_USERS', [])
+
+def sanitize_input(user_input):
+    """Sanitize user input to prevent command injection and control characters."""
+    # Remove carriage returns, line feeds, and null characters
+    sanitized = user_input.replace('\r', '').replace('\n', '').replace('\0', '')
+    # Remove control characters and non-printable characters
+    sanitized = re.sub(r'[\x00-\x1F\x7F]', '', sanitized)
+    # Trim leading and trailing whitespace
+    return sanitized.strip()
 
 class IrcBot:
     """An IRC bot that provides weather information and responds to specific triggers."""
@@ -179,6 +189,7 @@ class IrcBot:
             # Message in a channel
             if message.startswith(TRIGGER):
                 location = message[len(TRIGGER):].strip()
+                location = sanitize_input(location)  # Sanitize the location input
                 await self.handle_weather_command(user, channel, location)
             elif WAREZ_TRIGGER in message:
                 await self.handle_warez_command(channel)
@@ -197,6 +208,9 @@ class IrcBot:
                 return
             target_channel = parts[1]
             say_message = parts[2]
+            # Sanitize inputs
+            target_channel = sanitize_input(target_channel)
+            say_message = sanitize_input(say_message)
             await self.send_message(target_channel, say_message)
             logger.info(f"Admin {user} sent message to {target_channel}: {say_message}")
             await self.send_notice(user, f"Message sent to {target_channel}.")
@@ -206,6 +220,7 @@ class IrcBot:
 
     async def send_notice(self, user, message):
         """Send a notice to a user."""
+        message = sanitize_input(message)  # Sanitize the message
         self.writer.write(f"NOTICE {user} :{message}\r\n".encode())
         await self.writer.drain()
 
@@ -349,6 +364,7 @@ class IrcBot:
     async def send_message(self, channel, message):
         """Send a message to the IRC channel, splitting if too long."""
         max_length = 400  # Reserve space for protocol overhead
+        message = sanitize_input(message)  # Sanitize the message
         # Split the message into chunks if it exceeds the max length
         while len(message) > max_length:
             part = message[:max_length]
