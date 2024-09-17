@@ -32,7 +32,7 @@ with open(args.config, 'r') as config_file:
     config = json.load(config_file)
 
 # Validate required configurations
-REQUIRED_CONFIG_KEYS = ['HOST', 'PORT', 'USER', 'CHANNELS', 'API_KEY']
+REQUIRED_CONFIG_KEYS = ['HOST', 'PORT', 'USER', 'CHANNELS', 'API_KEY', 'USERNAME', 'PASSWORD']
 for key in REQUIRED_CONFIG_KEYS:
     if key not in config:
         raise ValueError(f"Missing required configuration: {key}")
@@ -52,6 +52,8 @@ PING_TIMEOUT = config['PING_TIMEOUT']
 
 API_KEY = config['API_KEY']
 ADMIN_USERS = config.get('ADMIN_USERS', [])
+USERNAME = config['USERNAME']
+PASSWORD = config['PASSWORD']
 
 def sanitize_input(user_input):
     """Sanitize user input to prevent command injection and control characters."""
@@ -73,14 +75,16 @@ class IrcBot:
         self.tasks = []
         self.weather_cache = TTLCache(maxsize=100, ttl=300)
         self.running = True
+        self.message_semaphore = asyncio.Semaphore(1)  # Limit to 1 message at a time
 
     async def connect(self):
         """Establish a connection to the IRC server and register the bot."""
         try:
             self.reader, self.writer = await asyncio.open_connection(HOST, PORT)
             await self.register()
-            await self.join_channels()
             logger.info("Connected to IRC server.")
+            await self.authenticate()
+            await self.join_channels()
         except asyncio.TimeoutError:
             logger.error(f"Timed out while trying to connect to IRC server at {HOST}:{PORT}")
             raise
@@ -94,30 +98,56 @@ class IrcBot:
         self.writer.write(f"USER {USER} 0 * :{USER}\r\n".encode())
         await self.writer.drain()
 
+    async def authenticate(self):
+        """Authenticate the bot with NickServ."""
+        await self.wait_for_welcome()
+        auth_message = f"PRIVMSG NickServ :IDENTIFY {USERNAME} {PASSWORD}\r\n"
+        self.writer.write(auth_message.encode())
+        await self.writer.drain()
+        logger.info(f"Sent NickServ IDENTIFY for user: {USERNAME}")
+
+    async def wait_for_welcome(self):
+        """Wait for the server's welcome message (001) before proceeding."""
+        while True:
+            line = await self.reader.readline()
+            if not line:
+                raise ConnectionError("Connection lost.")
+            line = line.decode('utf-8', errors='ignore').strip()
+            prefix, command, params = self.parse_irc_message(line)
+            if command == '001':
+                logger.info("Received welcome message from server.")
+                break
+            else:
+                await self.process_line(line)
+
     async def join_channels(self):
-        """Join the specified IRC channels."""
+        """Join the specified IRC channels and wait for confirmation."""
         for channel in CHANNELS:
             self.writer.write(f"JOIN {channel}\r\n".encode())
             await self.writer.drain()
+            await self.wait_for_join(channel)
 
-    async def ping_server(self):
-        """Periodically send PING messages to the server to keep the connection alive."""
-        try:
-            while self.running:
-                self.writer.write(f"PING :{HOST}\r\n".encode())
-                await self.writer.drain()
-                await asyncio.sleep(PING_INTERVAL)
-        except asyncio.CancelledError:
-            logger.info("Ping task cancelled.")
-        except Exception as e:
-            logger.error(f"Ping failed: {e}")
+    async def wait_for_join(self, channel):
+        """Wait for the server's confirmation that the bot has joined the channel."""
+        while True:
+            line = await self.reader.readline()
+            if not line:
+                raise ConnectionError("Connection lost.")
+            line = line.decode('utf-8', errors='ignore').strip()
+            prefix, command, params = self.parse_irc_message(line)
+            if command == '366' and params[1] == channel:
+                # '366' is the end of NAMES list, indicating channel join is complete
+                logger.info(f"Joined channel {channel}")
+                break
+            else:
+                await self.process_line(line)
 
     async def handle_messages(self, retries=3):
         """Handle incoming messages from the IRC server with retry logic."""
         for attempt in range(retries):
             try:
                 while self.running:
-                    line = await asyncio.wait_for(self.reader.readline(), timeout=30)  # Added timeout
+                    line = await asyncio.wait_for(self.reader.readline(), timeout=300)
                     if not line:
                         raise ConnectionError("Connection lost.")
                     line = line.decode('utf-8', errors='ignore').strip()
@@ -128,10 +158,10 @@ class IrcBot:
                 logger.error(f"Connection error or timeout: {e}")
                 if attempt < retries - 1:
                     logger.info(f"Retrying message handling... (Attempt {attempt + 1}/{retries})")
-                    await asyncio.sleep(2)  # Wait before retrying
+                    await asyncio.sleep(5)
                 else:
                     logger.error(f"Maximum retry attempts ({retries}) reached. Exiting.")
-                    await self.cleanup()
+                    self.running = False
                     break
 
     async def process_line(self, line):
@@ -144,7 +174,11 @@ class IrcBot:
         elif command == 'ERROR':
             logger.error(f"Server error: {' '.join(params)}")
             await self.reconnect()
-        elif command in ('NOTICE', '001', '002', '003', '004', '375', '372', '376'):
+        elif command == 'NOTICE':
+            logger.info(f"Notice from server: {' '.join(params)}")
+        elif command == '404':  # ERR_CANNOTSENDTOCHAN
+            logger.error(f"Cannot send to channel {params[1]}: {params[2]}")
+        elif command in ('001', '002', '003', '004', '375', '372', '376', '366'):
             pass  # Handle notices and welcome messages
         else:
             logger.debug(f"Unhandled message: {line}")
@@ -190,6 +224,22 @@ class IrcBot:
                 await self.handle_weather_command(user, channel, location)
             elif WAREZ_TRIGGER in message:
                 await self.handle_warez_command(channel)
+
+    async def handle_private_message(self, user, message):
+        """Handle private messages sent to the bot."""
+        if user in ADMIN_USERS:
+            if message.startswith('.say '):
+                # Extract channel and message
+                try:
+                    _, channel, say_message = message.split(' ', 2)
+                    await self.send_message(channel, say_message)
+                    logger.info(f"Admin {user} made the bot say in {channel}: {say_message}")
+                except ValueError:
+                    await self.send_message(user, "Usage: .say <channel> <message>")
+            else:
+                await self.send_message(user, "Unknown command.")
+        else:
+            await self.send_message(user, "You do not have permission to use this command.")
 
     async def handle_weather_command(self, user, channel, location):
         """Process the weather command and send weather information."""
@@ -330,41 +380,42 @@ class IrcBot:
     async def send_message(self, channel, message):
         """Send a message to the IRC channel, splitting if too long."""
         max_length = 400  # Reserve space for protocol overhead
-        message = sanitize_input(message)  # Sanitize the message
-        # Split the message into chunks if it exceeds the max length
-        while len(message) > max_length:
-            part = message[:max_length]
-            self.writer.write(f"PRIVMSG {channel} :{part}\r\n".encode())
-            await self.writer.drain()
-            message = message[max_length:]
-        self.writer.write(f"PRIVMSG {channel} :{message}\r\n".encode())
-        await self.writer.drain()
+        message = sanitize_input(message)
+        logger.debug(f"Attempting to send message to {channel}: {message}")
+        async with self.message_semaphore:
+            try:
+                while len(message) > max_length:
+                    part = message[:max_length]
+                    self.writer.write(f"PRIVMSG {channel} :{part}\r\n".encode())
+                    await self.writer.drain()
+                    logger.debug(f"Sent message chunk to {channel}: {part}")
+                    message = message[max_length:]
+                    await asyncio.sleep(1)  # Delay to prevent flooding
+                self.writer.write(f"PRIVMSG {channel} :{message}\r\n".encode())
+                await self.writer.drain()
+                logger.debug(f"Sent message to {channel}: {message}")
+            except Exception as e:
+                logger.error(f"Failed to send message to {channel}: {e}")
 
     async def run(self):
         """Run the bot."""
         while self.running:
             try:
                 await self.connect()
-                ping_task = asyncio.create_task(self.ping_server())
-                self.tasks.append(ping_task)
-                await self.handle_messages()  # Retry logic integrated in handle_messages
+                await self.handle_messages()
             except Exception as e:
                 logger.error(f"Unhandled exception: {e}")
                 await self.reconnect()
-            finally:
-                await self.cleanup()
 
     async def reconnect(self):
         """Attempt to reconnect to the IRC server with exponential backoff."""
-        retry_delay = 5  # Start with a 5-second delay
+        retry_delay = 10  # Start with a 10-second delay
         retries = 0
-        max_retries = 10
+        max_retries = 5
         while self.running and retries < max_retries:
             try:
                 logger.info("Attempting to reconnect...")
                 await self.connect()
-                ping_task = asyncio.create_task(self.ping_server())
-                self.tasks.append(ping_task)
                 await self.handle_messages()
                 break
             except Exception as e:
@@ -386,10 +437,14 @@ class IrcBot:
             with suppress(asyncio.CancelledError):
                 await task
         if self.writer:
-            self.writer.write("QUIT :Shutting down...\r\n".encode())
-            await self.writer.drain()
-            self.writer.close()
-            await self.writer.wait_closed()
+            try:
+                self.writer.write("QUIT :Shutting down...\r\n".encode())
+                await self.writer.drain()
+            except ConnectionResetError:
+                logger.error("Failed to send QUIT command. Connection was already closed.")
+            finally:
+                self.writer.close()
+                await self.writer.wait_closed()
         logger.info("Cleaned up resources.")
 
 class WarezResponder:

@@ -1,7 +1,7 @@
 {
   "HOST": "irc.server.name",
   "PORT": 6667,
-  "USER": "user-nick",
+  "USER": "irc-nick",
   "CHANNELS": ["#channel01", "#channel02"],
   "TRIGGER": "#zz",
   "RATE_LIMIT": 7,
@@ -9,9 +9,10 @@
   "IGNORE_TIME": 180,
   "WAREZ_TRIGGER": "!warez",
   "WAREZ_FILE": "warez-trigger.txt",
-  "PING_INTERVAL": 300,
-  "PING_TIMEOUT": 180,
-  "API_KEY": "enter-api-key-here",
-  "ADMIN_USERS": ["user01", "user02", "user03"]
+  "PING_INTERVAL": 600,
+  "PING_TIMEOUT": 300,
+  "API_KEY": "enter-your-api-key-here",
+  "ADMIN_USERS": ["user01", "user02", "user03"],
+  "USERNAME": "irc-nick",
+  "PASSWORD": "irc-nick-password"
 }
-
