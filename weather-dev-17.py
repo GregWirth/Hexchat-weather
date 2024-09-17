@@ -5,14 +5,14 @@ import time
 import random
 import signal
 import json
-import sys  # Added for sys.exit
+import sys
 from collections import defaultdict, deque
 from contextlib import suppress
 from urllib.parse import quote
 import argparse
 import logging.handlers
-from cachetools import TTLCache  # Added for TTLCache
-import re  # Import regular expressions for input sanitizing
+from cachetools import TTLCache
+import re
 
 # Configure logging with adjustable levels and log rotation
 parser = argparse.ArgumentParser(description='IRC Weather Bot')
@@ -50,18 +50,13 @@ WAREZ_FILE = config['WAREZ_FILE']
 PING_INTERVAL = config['PING_INTERVAL']
 PING_TIMEOUT = config['PING_TIMEOUT']
 
-API_KEY = config['API_KEY']  # Assuming API_KEY is in config
-
-# Load ADMIN_USERS from config
+API_KEY = config['API_KEY']
 ADMIN_USERS = config.get('ADMIN_USERS', [])
 
 def sanitize_input(user_input):
     """Sanitize user input to prevent command injection and control characters."""
-    # Remove carriage returns, line feeds, and null characters
     sanitized = user_input.replace('\r', '').replace('\n', '').replace('\0', '')
-    # Remove control characters and non-printable characters
     sanitized = re.sub(r'[\x00-\x1F\x7F]', '', sanitized)
-    # Trim leading and trailing whitespace
     return sanitized.strip()
 
 class IrcBot:
@@ -76,7 +71,7 @@ class IrcBot:
         self.writer = None
         self.lock = asyncio.Lock()
         self.tasks = []
-        self.weather_cache = TTLCache(maxsize=100, ttl=300)  # Cache up to 100 items for 5 minutes
+        self.weather_cache = TTLCache(maxsize=100, ttl=300)
         self.running = True
 
     async def connect(self):
@@ -117,24 +112,42 @@ class IrcBot:
         except Exception as e:
             logger.error(f"Ping failed: {e}")
 
-    async def handle_messages(self):
-        """Handle incoming messages from the IRC server."""
-        try:
-            while self.running:
-                line = await self.reader.readline()
-                if not line:
-                    raise ConnectionError("Connection lost.")
-                line = line.decode('utf-8', errors='ignore').strip()
-                logger.debug(f"Received line: {line}")
-                await self.process_line(line)
-        except (ConnectionError, asyncio.IncompleteReadError) as e:
-            logger.error(f"Connection error: {e}")
-            await self.cleanup()
+    async def handle_messages(self, retries=3):
+        """Handle incoming messages from the IRC server with retry logic."""
+        for attempt in range(retries):
+            try:
+                while self.running:
+                    line = await asyncio.wait_for(self.reader.readline(), timeout=30)  # Added timeout
+                    if not line:
+                        raise ConnectionError("Connection lost.")
+                    line = line.decode('utf-8', errors='ignore').strip()
+                    logger.debug(f"Received line: {line}")
+                    await self.process_line(line)
+                break  # Exit the loop if successful
+            except (ConnectionError, asyncio.TimeoutError) as e:
+                logger.error(f"Connection error or timeout: {e}")
+                if attempt < retries - 1:
+                    logger.info(f"Retrying message handling... (Attempt {attempt + 1}/{retries})")
+                    await asyncio.sleep(2)  # Wait before retrying
+                else:
+                    logger.error(f"Maximum retry attempts ({retries}) reached. Exiting.")
+                    await self.cleanup()
+                    break
+
+    async def process_line(self, line):
+        """Process a single line from the IRC server."""
+        prefix, command, params = self.parse_irc_message(line)
+        if command == 'PING':
+            await self.handle_ping(params)
+        elif command == 'PRIVMSG':
+            await self.handle_privmsg(prefix, params)
+        elif command == 'ERROR':
+            logger.error(f"Server error: {' '.join(params)}")
             await self.reconnect()
-        except Exception as e:
-            logger.error(f"Unexpected error: {e}")
-            await self.cleanup()
-            await self.reconnect()
+        elif command in ('NOTICE', '001', '002', '003', '004', '375', '372', '376'):
+            pass  # Handle notices and welcome messages
+        else:
+            logger.debug(f"Unhandled message: {line}")
 
     def parse_irc_message(self, message):
         """Parse an IRC message into its prefix, command, and parameters."""
@@ -152,22 +165,6 @@ class IrcBot:
             args = message.split()
         command = args.pop(0)
         return prefix, command, args
-
-    async def process_line(self, line):
-        """Process a single line from the IRC server."""
-        prefix, command, params = self.parse_irc_message(line)
-        if command == 'PING':
-            await self.handle_ping(params)
-        elif command == 'PRIVMSG':
-            await self.handle_privmsg(prefix, params)
-        elif command == 'ERROR':
-            logger.error(f"Server error: {' '.join(params)}")
-            await self.reconnect()
-        elif command in ('NOTICE', '001', '002', '003', '004', '375', '372', '376'):
-            # Handle notices and welcome messages
-            pass
-        else:
-            logger.debug(f"Unhandled message: {line}")
 
     async def handle_ping(self, params):
         """Respond to server PING messages."""
@@ -193,36 +190,6 @@ class IrcBot:
                 await self.handle_weather_command(user, channel, location)
             elif WAREZ_TRIGGER in message:
                 await self.handle_warez_command(channel)
-
-    async def handle_private_message(self, user, message):
-        """Handle private messages sent to the bot."""
-        if user not in ADMIN_USERS:
-            logger.warning(f"Unauthorized user {user} attempted to use admin command.")
-            await self.send_notice(user, "You are not authorized to use this command.")
-            return
-
-        if message.startswith('.say '):
-            parts = message.split(' ', 2)
-            if len(parts) < 3:
-                await self.send_notice(user, "Usage: .say #channel message")
-                return
-            target_channel = parts[1]
-            say_message = parts[2]
-            # Sanitize inputs
-            target_channel = sanitize_input(target_channel)
-            say_message = sanitize_input(say_message)
-            await self.send_message(target_channel, say_message)
-            logger.info(f"Admin {user} sent message to {target_channel}: {say_message}")
-            await self.send_notice(user, f"Message sent to {target_channel}.")
-        else:
-            # Handle other private commands if needed
-            await self.send_notice(user, "Unknown command.")
-
-    async def send_notice(self, user, message):
-        """Send a notice to a user."""
-        message = sanitize_input(message)  # Sanitize the message
-        self.writer.write(f"NOTICE {user} :{message}\r\n".encode())
-        await self.writer.drain()
 
     async def handle_weather_command(self, user, channel, location):
         """Process the weather command and send weather information."""
@@ -259,7 +226,6 @@ class IrcBot:
             try:
                 url = f"https://api.weatherapi.com/v1/forecast.json?key={API_KEY}&q={quote(location)}&days=1&aqi=no&alerts=no"
                 timeout = aiohttp.ClientTimeout(total=10)
-                # Use async context manager for session
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.get(url) as resp:
                         if resp.status != 200:
@@ -288,7 +254,7 @@ class IrcBot:
             # Extract all the required fields
             name = location_info['name']
             region = location_info['region']
-            country = location_info['country']
+            country = location_info['country'].replace("United States of America", "USA")  # Shorten USA
             temp_f = current['temp_f']
             temp_c = current['temp_c']
             condition_text = current['condition']['text']
@@ -379,10 +345,9 @@ class IrcBot:
         while self.running:
             try:
                 await self.connect()
-                # Start the ping task to keep the connection alive
                 ping_task = asyncio.create_task(self.ping_server())
                 self.tasks.append(ping_task)
-                await self.handle_messages()
+                await self.handle_messages()  # Retry logic integrated in handle_messages
             except Exception as e:
                 logger.error(f"Unhandled exception: {e}")
                 await self.reconnect()
@@ -398,10 +363,8 @@ class IrcBot:
             try:
                 logger.info("Attempting to reconnect...")
                 await self.connect()
-                # Restart the ping task
                 ping_task = asyncio.create_task(self.ping_server())
                 self.tasks.append(ping_task)
-                # If connection is successful, break out of the loop
                 await self.handle_messages()
                 break
             except Exception as e:
@@ -413,7 +376,6 @@ class IrcBot:
                     break
                 logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries}/{max_retries})...")
                 await asyncio.sleep(retry_delay)
-                # Increase the delay exponentially, up to a maximum of 5 minutes
                 retry_delay = min(retry_delay * 2, 300)
 
     async def cleanup(self):
