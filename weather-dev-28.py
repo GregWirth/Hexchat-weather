@@ -83,7 +83,7 @@ class IrcBot:
         try:
             self.reader, self.writer = await asyncio.open_connection(HOST, PORT)
             await self.register()
-            logger.info("Connected to IRC server.")
+            logger.info(f"Connected to IRC server as {self.current_nick}.")
             await self.wait_for_registration()
             await self.join_channels()
         except asyncio.TimeoutError:
@@ -110,11 +110,9 @@ class IrcBot:
             line = line.decode('utf-8', errors='ignore').strip()
             prefix, command, params = self.parse_irc_message(line)
             if command == '001':
-                # Registration successful
                 logger.info(f"Nickname {self.current_nick} accepted by server.")
                 break
             elif command == '433':
-                # Nickname in use
                 logger.warning(f"Nickname {self.current_nick} is already in use.")
                 await self.handle_nickname_in_use()
                 break
@@ -129,16 +127,12 @@ class IrcBot:
     async def handle_nickname_in_use(self):
         """Handle situation when the nickname is already in use by using GHOST command."""
         logger.info(f"Attempting to reclaim nickname {USER} using NickServ GHOST command.")
-        # Send GHOST command to NickServ
         self.writer.write(f"PRIVMSG NickServ :GHOST {USER} {PASSWORD}\r\n".encode())
         await self.writer.drain()
-        # Wait a moment for the server to process the command
         await asyncio.sleep(2)
-        # Try registering the nickname again
         self.writer.write(f"NICK {USER}\r\n".encode())
         await self.writer.drain()
         self.current_nick = USER
-        # Wait for registration confirmation
         await self.wait_for_registration()
 
     async def authenticate(self):
@@ -164,7 +158,6 @@ class IrcBot:
             line = line.decode('utf-8', errors='ignore').strip()
             prefix, command, params = self.parse_irc_message(line)
             if command == '366' and params[1] == channel:
-                # '366' is the end of NAMES list, indicating channel join is complete
                 logger.info(f"Joined channel {channel}")
                 break
             else:
@@ -191,6 +184,10 @@ class IrcBot:
                     logger.error(f"Maximum retry attempts ({retries}) reached. Exiting.")
                     self.running = False
                     break
+            except Exception as e:
+                logger.error(f"Unexpected error occurred: {e}")
+                self.running = False
+                break
 
     async def process_line(self, line):
         """Process a single line from the IRC server."""
@@ -301,21 +298,23 @@ class IrcBot:
             while self.global_request_times and current_time - self.global_request_times[0] > RATE_LIMIT_TIME:
                 self.global_request_times.popleft()
             if len(self.global_request_times) >= RATE_LIMIT:
-                warning_msg = f"The bot is currently rate limited due to high usage. Please try again later."
+                remaining_time = RATE_LIMIT_TIME - (current_time - self.global_request_times[0])
+                warning_msg = f"The bot is rate-limited. Try again in {int(remaining_time)} seconds."
                 await self.send_message(channel, warning_msg)
-                logger.warning("Global rate limit exceeded.")
                 return
             self.global_request_times.append(current_time)
+
             # Per-user rate limit
             request_times = self.last_requests[user]
             while request_times and current_time - request_times[0] > RATE_LIMIT_TIME:
                 request_times.popleft()
             if len(request_times) >= RATE_LIMIT:
-                warning_msg = f"You are being rate limited, {user}."
+                remaining_time = RATE_LIMIT_TIME - (current_time - request_times[0])
+                warning_msg = f"You are being rate-limited, {user}. Try again in {int(remaining_time)} seconds."
                 await self.send_message(channel, warning_msg)
-                logger.warning(f"Rate limit exceeded for user {user}.")
                 return
             request_times.append(current_time)
+
         await self.fetch_and_send_weather(channel, location, user)
 
     async def fetch_and_send_weather(self, channel, location, user):
@@ -356,7 +355,7 @@ class IrcBot:
             # Extract all the required fields
             name = location_info['name']
             region = location_info['region']
-            country = location_info['country'].replace("United States of America", "USA")  # Shorten USA
+            country = location_info['country'].replace("United States of America", "USA")
             temp_f = current['temp_f']
             temp_c = current['temp_c']
             condition_text = current['condition']['text']
@@ -460,26 +459,22 @@ class IrcBot:
                 await self.reconnect()
 
     async def reconnect(self):
-        """Attempt to reconnect to the IRC server with exponential backoff."""
+        """Attempt to reconnect to the IRC server with indefinite retries and exponential backoff."""
         retry_delay = 10  # Start with a 10-second delay
         retries = 0
-        max_retries = 5
-        while self.running and retries < max_retries:
+        MAX_BACKOFF = 300  # Cap the retry delay to 5 minutes
+        while self.running:
             try:
-                logger.info("Attempting to reconnect...")
+                logger.info(f"Attempting to reconnect as {self.current_nick}...")
                 await self.connect()
                 await self.handle_messages()
                 break
             except Exception as e:
                 logger.error(f"Reconnection failed: {e}")
                 retries += 1
-                if retries >= max_retries:
-                    logger.error(f"Max reconnection attempts ({max_retries}) reached. Exiting.")
-                    self.running = False
-                    break
-                logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries}/{max_retries})...")
+                logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries}).")
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, 300)
+                retry_delay = min(retry_delay * 2, MAX_BACKOFF)
 
     async def cleanup(self):
         """Clean up resources on shutdown."""
@@ -520,6 +515,7 @@ if __name__ == "__main__":
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop = asyncio.get_running_loop()
             loop.add_signal_handler(sig, lambda: asyncio.create_task(bot.cleanup()))
+            logger.info(f"Signal handler set for {sig}")
         await bot.run()
 
     try:
