@@ -72,11 +72,13 @@ class IrcBot:
         self.reader = None
         self.writer = None
         self.lock = asyncio.Lock()
+        self.reader_lock = asyncio.Lock()  # Lock for reading from the connection
         self.tasks = []
         self.weather_cache = TTLCache(maxsize=100, ttl=300)
         self.running = True
         self.message_semaphore = asyncio.Semaphore(1)  # Limit to 1 message at a time
         self.current_nick = USER  # Track the current nickname
+        self.pending_channels = set()  # Channels that are pending to be joined
 
     async def connect(self):
         """Establish a connection to the IRC server and register the bot."""
@@ -95,6 +97,10 @@ class IrcBot:
 
     async def register(self):
         """Register the bot with the IRC server and authenticate."""
+        if self.writer is None:
+            logger.error("Cannot register, no active connection.")
+            return
+
         self.current_nick = USER
         self.writer.write(f"NICK {self.current_nick}\r\n".encode())
         self.writer.write(f"USER {USER} 0 * :{USER}\r\n".encode())
@@ -104,7 +110,8 @@ class IrcBot:
     async def wait_for_registration(self):
         """Wait for the server's response to nickname registration."""
         while True:
-            line = await self.reader.readline()
+            async with self.reader_lock:
+                line = await self.reader.readline()
             if not line:
                 raise ConnectionError("Connection lost.")
             line = line.decode('utf-8', errors='ignore').strip()
@@ -126,6 +133,10 @@ class IrcBot:
 
     async def handle_nickname_in_use(self):
         """Handle situation when the nickname is already in use by using GHOST command."""
+        if self.writer is None:
+            logger.warning("Cannot reclaim nickname, no active connection.")
+            return
+
         logger.info(f"Attempting to reclaim nickname {USER} using NickServ GHOST command.")
         self.writer.write(f"PRIVMSG NickServ :GHOST {USER} {PASSWORD}\r\n".encode())
         await self.writer.drain()
@@ -137,81 +148,115 @@ class IrcBot:
 
     async def authenticate(self):
         """Authenticate the bot with NickServ."""
+        if self.writer is None:
+            logger.error("Cannot authenticate, no active connection.")
+            return
+
         auth_message = f"PRIVMSG NickServ :IDENTIFY {USERNAME} {PASSWORD}\r\n"
         self.writer.write(auth_message.encode())
         await self.writer.drain()
         logger.info(f"Sent NickServ IDENTIFY for user: {USERNAME}")
 
     async def join_channels(self):
-        """Join the specified IRC channels and wait for confirmation."""
+        """Send JOIN commands for all channels and track join confirmations."""
+        if self.writer is None:
+            logger.error("Cannot join channels, no active connection.")
+            return
+
+        self.pending_channels = set(CHANNELS)  # Keep track of channels to join
+
         for channel in CHANNELS:
+            logger.info(f"Joining channel {channel}")
             self.writer.write(f"JOIN {channel}\r\n".encode())
             await self.writer.drain()
-            await self.wait_for_join(channel)
+            await asyncio.sleep(1)  # Add a small delay between JOIN commands
 
-    async def wait_for_join(self, channel):
-        """Wait for the server's confirmation that the bot has joined the channel."""
-        while True:
-            line = await self.reader.readline()
-            if not line:
-                raise ConnectionError("Connection lost.")
-            line = line.decode('utf-8', errors='ignore').strip()
-            prefix, command, params = self.parse_irc_message(line)
-            if command == '366' and params[1] == channel:
-                logger.info(f"Joined channel {channel}")
-                break
-            else:
-                await self.process_line(line)
-
-    async def handle_messages(self, retries=3):
-        """Handle incoming messages from the IRC server with retry logic."""
-        for attempt in range(retries):
+    async def ping_chanserv(self):
+        """Ping ChanServ every 10 minutes and reconnect if no response within 5 minutes (total)."""
+        while self.running:
+            if self.writer is None:
+                logger.warning("Cannot send PING to ChanServ, no active connection.")
+                await self.reconnect()  # Reconnect if there is no active connection
+                continue
             try:
-                while self.running:
-                    line = await asyncio.wait_for(self.reader.readline(), timeout=300)
-                    if not line:
-                        raise ConnectionError("Connection lost.")
-                    line = line.decode('utf-8', errors='ignore').strip()
-                    logger.debug(f"Received line: {line}")
-                    await self.process_line(line)
-                break  # Exit the loop if successful
-            except (ConnectionError, asyncio.TimeoutError) as e:
-                logger.error(f"Connection error or timeout: {e}")
-                if attempt < retries - 1:
-                    logger.info(f"Retrying message handling... (Attempt {attempt + 1}/{retries})")
-                    await asyncio.sleep(5)
-                else:
-                    logger.error(f"Maximum retry attempts ({retries}) reached. Exiting.")
-                    self.running = False
+                self.last_ping_time = time.time()  # Track the last time we pinged ChanServ
+                logger.info("Sending PING to ChanServ")
+                self.writer.write(f"PING ChanServ\r\n".encode())
+                await self.writer.drain()
+
+                # Wait for response for 3 minutes
+                await asyncio.wait_for(self.ping_response_wait("ChanServ"), timeout=180)
+
+                logger.info("Received PONG from ChanServ")
+                await asyncio.sleep(600)  # Wait for 10 minutes before the next ping
+
+            except asyncio.TimeoutError:
+                logger.warning("No response from ChanServ after 3 minutes. Retrying...")
+                
+                # Send another ping after 3 minutes of no response
+                if self.writer is None:
+                    logger.error("No connection to send PING on retry.")
+                    await self.reconnect()
+                    break
+
+                self.writer.write(f"PING ChanServ\r\n".encode())
+                await self.writer.drain()
+
+                # Wait for another 2 minutes for response
+                try:
+                    await asyncio.wait_for(self.ping_response_wait("ChanServ"), timeout=120)
+                    logger.info("Received PONG from ChanServ on second attempt.")
+                    await asyncio.sleep(600)  # Wait another 10 minutes before next ping
+                except asyncio.TimeoutError:
+                    logger.error("No response from ChanServ after second attempt. Reconnecting...")
+                    await self.reconnect()  # Reconnect to the server if no response after retry
                     break
             except Exception as e:
-                logger.error(f"Unexpected error occurred: {e}")
-                self.running = False
+                logger.error(f"Error during ping to ChanServ: {e}")
+                await self.reconnect()  # Reconnect in case of any unexpected error
+                break
+
+    async def ping_response_wait(self, target):
+        """Wait for a PONG response from the specified target."""
+        self.ping_event = asyncio.Event()  # Reset event before each wait
+        await self.ping_event.wait()  # Wait until we receive the PONG from ChanServ
+
+    async def handle_messages(self):
+        """Handle incoming messages from the IRC server."""
+        while self.running:
+            try:
+                async with self.reader_lock:
+                    line = await self.reader.readline()
+                if not line:
+                    raise ConnectionError("Connection lost: received empty response.")
+                line = line.decode('utf-8', errors='ignore').strip()
+                logger.debug(f"Received line: {line}")
+                await self.process_line(line)
+            except Exception as e:
+                logger.error(f"Error in message handling: {e}")
+                await self.reconnect()
                 break
 
     async def process_line(self, line):
         """Process a single line from the IRC server."""
         prefix, command, params = self.parse_irc_message(line)
+
         if command == 'PING':
             await self.handle_ping(params)
+        elif command == 'PONG':
+            if params[0] == "ChanServ":
+                logger.info("Received PONG from ChanServ")
+                self.last_pong_time = time.time()  # Update the last time we received PONG from ChanServ
+                self.ping_event.set()  # Notify the ping wait task that PONG was received
+            else:
+                logger.debug(f"Unhandled PONG from {params[0]}")
+        elif command == '366':
+            await self.handle_join_confirmation(params)
         elif command == 'PRIVMSG':
             await self.handle_privmsg(prefix, params)
         elif command == 'ERROR':
             logger.error(f"Server error: {' '.join(params)}")
             await self.reconnect()
-        elif command == 'NOTICE':
-            notice_message = params[-1]
-            logger.info(f"Notice from server: {notice_message}")
-            if 'registered' in notice_message.lower() and 'identify' in notice_message.lower():
-                logger.info("Server requires identification. Sending IDENTIFY command.")
-                await self.authenticate()
-        elif command == '433':
-            logger.warning(f"Nickname {self.current_nick} is already in use.")
-            await self.handle_nickname_in_use()
-        elif command == '404':  # ERR_CANNOTSENDTOCHAN
-            logger.error(f"Cannot send to channel {params[1]}: {params[2]}")
-        elif command in ('001', '002', '003', '004', '375', '372', '376', '366'):
-            pass  # Handle notices and welcome messages
         else:
             logger.debug(f"Unhandled message: {line}")
 
@@ -238,6 +283,15 @@ class IrcBot:
         await self.writer.drain()
         self.last_pong_time = time.time()
         logger.debug("Responded to PING with PONG.")
+
+    async def handle_join_confirmation(self, params):
+        """Handle the server's confirmation of joining a channel."""
+        channel = params[1]
+        if channel in self.pending_channels:
+            self.pending_channels.remove(channel)
+            logger.info(f"Successfully joined channel {channel}")
+        else:
+            logger.debug(f"Received unexpected join confirmation for {channel}")
 
     async def handle_privmsg(self, prefix, params):
         """Handle PRIVMSG commands."""
@@ -450,6 +504,8 @@ class IrcBot:
 
     async def run(self):
         """Run the bot."""
+        self.tasks.append(asyncio.create_task(self.ping_chanserv()))  # Start pinging ChanServ
+
         while self.running:
             try:
                 await self.connect()
@@ -465,16 +521,16 @@ class IrcBot:
         MAX_BACKOFF = 300  # Cap the retry delay to 5 minutes
         while self.running:
             try:
-                logger.info(f"Attempting to reconnect as {self.current_nick}...")
+                logger.info(f"Attempting to reconnect as {self.current_nick} (Attempt {retries + 1})...")
                 await self.connect()
                 await self.handle_messages()
-                break
+                break  # Exit the loop if reconnection is successful
             except Exception as e:
-                logger.error(f"Reconnection failed: {e}")
+                logger.error(f"Reconnection attempt failed: {e}")
                 retries += 1
-                logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries}).")
+                logger.info(f"Retrying in {retry_delay} seconds (Attempt {retries})...")
                 await asyncio.sleep(retry_delay)
-                retry_delay = min(retry_delay * 2, MAX_BACKOFF)
+                retry_delay = min(retry_delay * 2, MAX_BACKOFF)  # Exponential backoff
 
     async def cleanup(self):
         """Clean up resources on shutdown."""
