@@ -11,7 +11,7 @@
   "WAREZ_FILE": "warez-trigger.txt",
   "PING_INTERVAL": 600,
   "PING_TIMEOUT": 300,
-  "API_KEY": "enter-your-api-key-here",
+  "API_KEY": "enter-api-key-here",
   "ADMIN_USERS": ["user01", "user02", "user03"],
   "USERNAME": "irc-nick",
   "PASSWORD": "irc-nick-password"
