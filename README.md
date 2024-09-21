@@ -4,8 +4,9 @@ Runs on Linux Mint 21.x no idea if it works on anything else<br>
 Script runs, joins selected IRC server and listens for commands.<br>
 Requires various modules which can be installed with pip<br>
 Written to use Python 3.10.12 but may work with older versions of 3.x<br>
+You can name the .py file anything you like {filename}.py<br>
 Edit config.json with your info<br>
-Run command: python3 weather-dev-10.py --log-level {DEBUG INFO WARNING ERROR CRITICAL}<br>
+Run command: python3 {filename}.py --log-level {DEBUG INFO WARNING ERROR CRITICAL}<br>
 A file will be created named: bot.log<br>
 tail -f bot.log in another window<br>
 This script uses: https://www.weatherapi.com/<br>
@@ -14,7 +15,7 @@ Script uses #zz as a trigger.<br>
 Syntax: #zz {zip code}<br>
 Syntax: #zz {place name}<br>
 Returns weather information for zip codes or place names.<br>
-Can use USA and Canada zip codes.<br>
+Can use worldwide city names as well as USA and Canada zip codes.<br>
 Allows users listed in config.json as Admin to send msg to bot that is output to channel<br>
 Syntax: /msg {botname} .say #{channel} {message}<br>
 Script also has a command to send text/links to the channel from a file<br>
