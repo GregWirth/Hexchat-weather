@@ -23,6 +23,13 @@ The text is selected randomly<br>
 Usage: !warez<br>
 Filename: warez-trigger.txt<br>
 <br>
+Does nick registration<br>
+Will issue ghost command to kill in use nick upon reconnect<br>
+Detects netsplits and may attempt to reconnect<br>
+Will cache API requests for a few minutes to help reduce API hits<br> 
+Will throttle users who request too quickly or too many times in a short period<br> 
+Does input sanitation<br>
+<br>
 Despite the comprehensive refactoring and the meticulous integration of <br>
 a plethora of enhancements designed to optimize the code's stability and <br>
 reliability, there remains a non-negligible probability that you may encounter<br>
