@@ -26,8 +26,10 @@ Filename: warez-trigger.txt<br>
 Does nick registration<br>
 Will issue ghost command to kill in use nick upon reconnect<br>
 Detects netsplits and may attempt to reconnect<br>
-Will cache API requests for a few minutes to help reduce API hits<br> 
+Will cache API requests for 5 minutes to help reduce API hits<br> 
 Will throttle users who request too quickly or too many times in a short period<br> 
+Users can make up to 3 requests every 60 seconds.<br>
+If they exceed this limit, they are throttled for up to 60 seconds from their first request <br>
 Does input sanitation<br>
 <br>
 Despite the comprehensive refactoring and the meticulous integration of <br>

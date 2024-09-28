@@ -41,8 +41,8 @@ except json.JSONDecodeError as e:
 # Validate required configurations
 REQUIRED_CONFIG_KEYS = [
     'HOST', 'PORT', 'USER', 'CHANNELS', 'API_KEY', 'USERNAME', 'PASSWORD',
-    'TRIGGER', 'RATE_LIMIT', 'RATE_LIMIT_TIME', 'IGNORE_TIME', 'WAREZ_TRIGGER',
-    'WAREZ_FILE', 'PING_INTERVAL', 'PING_TIMEOUT'
+    'TRIGGER', 'RATE_LIMIT', 'RATE_LIMIT_TIME', 'GLOBAL_RATE_LIMIT', 'GLOBAL_RATE_LIMIT_TIME',
+    'IGNORE_TIME', 'WAREZ_TRIGGER', 'WAREZ_FILE', 'PING_INTERVAL', 'PING_TIMEOUT'
 ]
 for key in REQUIRED_CONFIG_KEYS:
     if key not in config:
@@ -56,6 +56,8 @@ CHANNELS = config['CHANNELS']
 TRIGGER = config['TRIGGER']
 RATE_LIMIT = config['RATE_LIMIT']
 RATE_LIMIT_TIME = config['RATE_LIMIT_TIME']
+GLOBAL_RATE_LIMIT = config['GLOBAL_RATE_LIMIT']
+GLOBAL_RATE_LIMIT_TIME = config['GLOBAL_RATE_LIMIT_TIME']
 IGNORE_TIME = config['IGNORE_TIME']
 WAREZ_TRIGGER = config['WAREZ_TRIGGER']
 WAREZ_FILE = config['WAREZ_FILE']
@@ -88,7 +90,7 @@ class IrcBot:
 
     def __init__(self):
         self.last_requests = defaultdict(lambda: deque(maxlen=RATE_LIMIT))
-        self.global_request_times = deque(maxlen=RATE_LIMIT)
+        self.global_request_times = deque(maxlen=GLOBAL_RATE_LIMIT)
         self.warez_responder = WarezResponder(WAREZ_FILE)
         self.last_pong_time = time.time()
         self.reader = None
@@ -315,11 +317,11 @@ class IrcBot:
         current_time = time.time()
         async with self.lock:
             # Global rate limit
-            while self.global_request_times and current_time - self.global_request_times[0] > RATE_LIMIT_TIME:
+            while self.global_request_times and current_time - self.global_request_times[0] > GLOBAL_RATE_LIMIT_TIME:
                 self.global_request_times.popleft()
-            if len(self.global_request_times) >= RATE_LIMIT:
-                remaining_time = RATE_LIMIT_TIME - (current_time - self.global_request_times[0])
-                warning_msg = f"The bot is rate-limited. Try again in {int(remaining_time)} seconds."
+            if len(self.global_request_times) >= GLOBAL_RATE_LIMIT:
+                remaining_time = GLOBAL_RATE_LIMIT_TIME - (current_time - self.global_request_times[0])
+                warning_msg = f"The bot is currently handling many requests. Please try again in {int(remaining_time)} seconds."
                 await self.send_message(channel, warning_msg)
                 return
             self.global_request_times.append(current_time)
