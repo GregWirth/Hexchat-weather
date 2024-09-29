@@ -16,8 +16,6 @@ Syntax: #zz {zip code}<br>
 Syntax: #zz {place name}<br>
 Returns weather information for zip codes or place names.<br>
 Can use worldwide city names as well as USA and Canada zip codes.<br>
-Allows users listed in config.json as Admin to send msg to bot that is output to channel<br>
-Syntax: /msg {botname} .say #{channel} {message}<br>
 Script also has a command to send text/links to the channel from a file<br>
 The text is selected randomly<br>
 Usage: !warez<br>
