@@ -1,0 +1,5 @@
+10-25-2024
+Bot register with nickserv before joining channels 
+Bot should work better on windows
+Update logging
+Fix possible loop condition during reconnect
