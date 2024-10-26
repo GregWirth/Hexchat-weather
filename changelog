@@ -3,3 +3,7 @@ Bot register with nickserv before joining channels
 Bot should work better on windows
 Update logging
 Fix possible loop condition during reconnect
+-
+10-26-2024
+Added /ctcp version response
+Added a #stab trigger that reads from a text file stab.txt #stab {nick}
