@@ -20,7 +20,7 @@ Script also has a command to send text/links to the channel from a file<br>
 The text is selected randomly<br>
 Usage: !warez<br>
 Filename: warez-trigger.txt<br>
-stab trigger reads one line randomls from a text file stab.txt and issues to channel <br>
+Stab trigger reads one line randomly from a text file stab.txt and issues to channel <br>
 Usage: #stab {username}<br>
 <br>
 Does nick registration<br>
