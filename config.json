@@ -4,7 +4,7 @@
   "USER": "irc-nick",
   "CHANNELS": ["#channel01", "#channel02"],
   "TRIGGER": "#zz",
-  "STAB_TRIGGER": "#stab plazma",
+  "STAB_TRIGGER": "#stab ",
   "STAB_FILE": "stab.txt",
   "RATE_LIMIT": 7,
   "RATE_LIMIT_TIME": 60,
