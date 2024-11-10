@@ -9,13 +9,16 @@ Edit config.json with your info<br>
 Run command: python3 {filename}.py --log-level {DEBUG INFO WARNING ERROR CRITICAL}<br>
 A file will be created named: bot.log<br>
 tail -f bot.log in another window<br>
-This script uses: https://www.weatherapi.com/<br>
-You can sign up for a free account.<br>
-Script uses #zz as a trigger.<br>
-Syntax: #zz {zip code}<br>
-Syntax: #zz {place name}<br>
-Returns weather information for zip codes or place names.<br>
-Can use worldwide city names as well as USA and Canada zip codes.<br>
+Log file is saved daily<br> 
+bot.log bot.log.2024-11-08<br>
+This script uses the API from: https://www.weatherapi.com/<br>
+You can sign up for a free account<br>
+Script uses #zz as a trigger<br>
+Syntax: #zz {zip code or city name}<br>
+Syntax: #zz {zip code or city name} --forecast<br>
+Returns weather information for zip codes or city names<br>
+Using --forecast will return a 2 day forecast<br>
+Can use worldwide city names as well as USA and Canada zip codes<br>
 Script also has a command to send text/links to the channel from a file<br>
 The text is selected randomly<br>
 Usage: !warez<br>
@@ -25,7 +28,7 @@ Usage: #stab {username}<br>
 <br>
 Does nick registration<br>
 Will issue ghost command to kill in use nick upon reconnect<br>
-Detects netsplits and may attempt to reconnect<br>
+Detects netsplits and attempts to reconnect<br>
 Will cache API requests for 5 minutes to help reduce API hits<br> 
 Will throttle users who request too quickly or too many times in a short period<br> 
 Users can make up to 3 requests every 60 seconds.<br>
