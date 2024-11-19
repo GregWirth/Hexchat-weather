@@ -16,9 +16,10 @@ You can sign up for a free account<br>
 Script uses #zz as a trigger<br>
 Syntax: #zz {zip code or city name}<br>
 Syntax: #zz {zip code or city name} --forecast<br>
+Syntax: #zz 32.7831 -96.8065<br>
 Returns weather information for zip codes or city names<br>
 Using --forecast will return a 2 day forecast<br>
-Can use worldwide city names as well as USA and Canada zip codes<br>
+US Zipcode, UK Postcode, Canada Postalcode, IP address, Latitude/Longitude (decimal degree) or city name<br>
 Script also has a command to send text/links to the channel from a file<br>
 The text is selected randomly<br>
 Usage: !warez<br>
