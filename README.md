@@ -1,8 +1,10 @@
 # IRC weather bot<br><br>
 <br>
 Runs on Linux Mint 21.x no idea if it works on anything else<br>
-Requires various modules which can be installed with pip<br>
 Written to use Python 3.10.12 but may work with older versions of 3.x<br>
+Requires various modules which can be installed with pip<br>
+Syntax: pip install aiohttp cachetools<br>
+<br>
 Script joins selected IRC server and listens for commands.<br>
 You can name the .py file anything you like {filename}.py<br>
 Edit config.json with your info<br>
