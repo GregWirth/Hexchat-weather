@@ -67,7 +67,6 @@ PING_INTERVAL = config['PING_INTERVAL']
 PING_TIMEOUT = config['PING_TIMEOUT']
 
 API_KEY = config['API_KEY']
-ADMIN_USERS = config.get('ADMIN_USERS', [])
 USERNAME = config['USERNAME']
 PASSWORD = config['PASSWORD']
 
