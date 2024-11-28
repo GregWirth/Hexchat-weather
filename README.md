@@ -5,13 +5,20 @@ Written to use Python 3.10.12 but may work with older versions of 3.x<br>
 Requires various modules which can be installed with pip<br>
 Syntax: pip install aiohttp cachetools<br>
 <br>
+A bash script is included to check if bot is running and start it if not<br>
+Place bash script in same dir as bot. Creates 2 log files that rotate daily<br>
+Add as a cron job<br>
+Syntax: */5 * * * * /PATH/TO/BOT/check_bot-v.0.03.sh >> /PATH/TO/BOT/cron.log 2>&1<br>
+This will run bot in the background<br>
+You do not need the bash script, you can run bot manually<br>
+<br>
 Script joins selected IRC server and listens for commands.<br>
 You can name the .py file anything you like {filename}.py<br>
 Edit config.json with your info<br>
 Run command: python3 {filename}.py --log-level {DEBUG INFO WARNING ERROR CRITICAL}<br>
 A file will be created named: bot.log<br>
 tail -f bot.log in another window<br>
-Log file is saved daily<br> 
+Log file rotates daily<br> 
 bot.log bot.log.2024-11-08<br>
 This script uses the API from: https://www.weatherapi.com/<br>
 You can sign up for a free account<br>
