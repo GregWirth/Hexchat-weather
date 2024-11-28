@@ -7,6 +7,7 @@ Syntax: pip install aiohttp cachetools<br>
 <br>
 A bash script is included to check if bot is running and start it if not<br>
 Place bash script in same dir as bot. Creates 2 log files that rotate daily<br>
+Use chmod +x check_bot.sh<br>
 Add as a cron job<br>
 Syntax: */5 * * * * /PATH/TO/BOT/check_bot-v.0.03.sh >> /PATH/TO/BOT/cron.log 2>&1<br>
 This will run bot in the background<br>
