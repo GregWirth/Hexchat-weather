@@ -5,7 +5,7 @@
   "CHANNELS": ["#channel01", "#channel02"],
   "TRIGGER": "#zz",
   "STAB_TRIGGER": "#stab ",
-  "STAB_FILE": "stab.txt",
+  "STAB_FILE": "stab-trigger.txt",
   "RATE_LIMIT": 7,
   "RATE_LIMIT_TIME": 60,
   "GLOBAL_RATE_LIMIT": 50,
