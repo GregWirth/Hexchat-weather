@@ -3,7 +3,11 @@
 Runs on Linux Mint 21.x no idea if it works on anything else<br>
 Written to use Python 3.10.12 but may work with older versions of 3.x<br>
 Requires various modules which can be installed with pip<br>
-Syntax: pip install aiohttp cachetools<br>
+<br>
+sudo apt install python3.12-venv<br>
+python3 -m venv myenv<br>
+source myenv/bin/activate<br>
+pip install aiohttp cachetools<br>
 <br>
 A bash script is included to check if bot is running and start it if not<br>
 Place bash script in same dir as bot. Creates 2 log files that rotate daily<br>
